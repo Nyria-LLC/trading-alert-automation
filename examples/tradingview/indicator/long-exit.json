@@ -1,0 +1,7 @@
+{
+  "action": "CLOSE",
+  "instrument": "{{ticker}}",
+  "direction": "LONG",
+  "price": {{close}},
+  "message": "Close long {{ticker}} at {{close}}"
+}

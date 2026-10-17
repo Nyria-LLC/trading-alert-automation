@@ -1,0 +1,26 @@
+# Message shapes Nyria reads in a Discord channel or Telegram chat it is set up on.
+# One message per line. Lines starting with # are notes.
+# Every alert needs a ticker, a direction and an action.
+
+# Stocks and crypto
+SPY long entry
+long SPY here
+Close SPY long
+Close short BTC
+AAPL 345C buy to open
+sold half SPY 780C
+
+# Options with the contract in the message (strategies set to "Provided in alert")
+BTO SPY 12/18 780C
+BTO 1 SPY 12/18 $780 CALL @ 14.50
+SPY 780C/781C bull call spread
+
+# Quoted tweets (Discord, when the tweet unfurls)
+longed NVDA at 224.40, stop 221
+shorted NVDA
+closed long NVDA
+closed short NVDA
+
+# Not traded: questions and hedged wording
+# thinking about SPY?
+# added more SPY

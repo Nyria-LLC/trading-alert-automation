@@ -1,0 +1,11 @@
+# One message per alert. Paste a single line into TradingView's Message box.
+# Every alert needs a ticker, a direction and an action. Word exits the way you word entries.
+
+long entry spy
+SPY long entry
+close long SPY
+SPY short entry
+close short SPY
+
+# With TradingView placeholders:
+{{strategy.order.action}} {{ticker}} @ {{close}}

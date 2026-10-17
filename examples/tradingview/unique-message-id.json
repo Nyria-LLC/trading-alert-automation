@@ -1,0 +1,5 @@
+{
+  "ticker": "{{ticker}}",
+  "action": "buy",
+  "metadata": { "message_id": "{{timenow}}" }
+}

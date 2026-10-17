@@ -1,0 +1,165 @@
+//@version=6
+// Nyria Alert Builder. Released under the MIT license, see the LICENSE file of this repository.
+// https://github.com/Nyria-LLC/trading-alert-automation
+
+// Builds a JSON alert message for every order this strategy places and attaches it to the order with
+// `alert_message`. One TradingView alert on "Order fills only", with {{strategy.order.alert_message}} as
+// its message, then sends the matching message for every entry, exit and reversal.
+//
+// Each message names the order side ("buy" or "sell") and the strategy position before and after the
+// fill ("long", "short" or "flat"). The receiver reads entry, exit and reversal from that change.
+// No order size is sent: the receiving bot sizes every order from its own settings.
+//
+// The EMA crossover is only an example signal. Replace `goLong` and `goShort` with your own conditions,
+// or copy the "Message builder" section into your own strategy and pass its messages to your orders.
+//
+// TradingView does not fill in {{placeholders}} inside `alert_message`, so every value here is computed
+// in Pine.
+
+//@strategy_alert_message {{strategy.order.alert_message}}
+strategy("Nyria Alert Builder", shorttitle = "Alert Builder", overlay = true,
+     pyramiding = 0, process_orders_on_close = true, calc_on_every_tick = false,
+     initial_capital = 10000, default_qty_type = strategy.percent_of_equity, default_qty_value = 10,
+     commission_type = strategy.commission.percent, commission_value = 0.02, slippage = 2,
+     margin_long = 100, margin_short = 100)
+
+// ---------------------------------------------------------------- Inputs
+
+const string GRP_MSG = "Alert message"
+string assetInput   = input.string("Stock or ETF", "Asset class", options = ["Stock or ETF", "Option", "Crypto"], group = GRP_MSG, display = display.none, tooltip = "Match the asset type of the receiving strategy. Option messages carry no price, because the strategy's leg rules pick the contract and its price. Crypto removes the .P suffix of perpetual charts.")
+string tickerInput  = input.string("", "Ticker to send", group = GRP_MSG, display = display.none, tooltip = "Leave blank to send the chart's ticker. Fill it in when the chart symbol differs from the ticker listed on the receiving strategy, for example a perpetual chart for a spot pair.")
+float  offsetInput  = input.float(0.0, "Limit price offset %", minval = 0.0, maxval = 5.0, step = 0.05, group = GRP_MSG, display = display.none, tooltip = "Moves the price in each message toward a fill: up for buys, down for sells. It matters only when the receiving strategy places limit orders at the alert price.")
+bool   idInput      = input.bool(true, "Add a message id", group = GRP_MSG, display = display.none, tooltip = "Adds metadata.message_id, made of the ticker, the bar time in UTC and the order type. A second copy of the same order's message is dropped as a duplicate. Two orders of the same type on the same bar share an id, so turn this off if you add to a position more than once on one bar.")
+bool   previewInput = input.bool(true, "Show the last message on the chart", group = GRP_MSG, display = display.none)
+
+const string GRP_SIG = "Example signal (replace with your own)"
+string dirInput  = input.string("Long and short", "Trade direction", options = ["Long and short", "Long only", "Short only"], group = GRP_SIG, display = display.none, tooltip = "Long and short: an opposite signal reverses the position in one order. Long only or Short only: an opposite signal closes the position.")
+int    fastInput = input.int(9, "Fast EMA length", minval = 1, group = GRP_SIG)
+int    slowInput = input.int(21, "Slow EMA length", minval = 2, group = GRP_SIG)
+float  slInput   = input.float(0.0, "Stop loss %", minval = 0.0, step = 0.1, group = GRP_SIG, display = display.none, tooltip = "Distance from the average entry price. 0 turns the stop loss off.")
+float  tpInput   = input.float(0.0, "Take profit %", minval = 0.0, step = 0.1, group = GRP_SIG, display = display.none, tooltip = "Distance from the average entry price. 0 turns the take profit off.")
+
+// ---------------------------------------------------------------- Message builder
+
+// The ticker the message names. Spaces and double quotes are removed so the JSON stays valid.
+// Crypto perpetual charts end in ".P", which no listed pair carries.
+sendTicker() =>
+    string raw   = str.trim(tickerInput) == "" ? syminfo.ticker : tickerInput
+    string clean = str.upper(str.replace_all(str.replace_all(raw, " ", ""), '"', ""))
+    bool   perp  = assetInput == "Crypto" and str.endswith(clean, ".P")
+    perp ? str.substring(clean, 0, str.length(clean) - 2) : clean
+
+// A price rounded to the symbol's tick, written with a leading zero and no thousands separator.
+fmtPrice(float p) =>
+    str.tostring(math.round_to_mintick(p), "0.##########")
+
+// One order's message.
+// side:     "buy" or "sell", the side of the order that fills.
+// prevPos:  "long", "short" or "flat", the strategy position before the fill.
+// newPos:   "long", "short" or "flat", the strategy position after the fill.
+// kind:     the order type, used only in the message id.
+// refPrice: the price the order is tied to: the bar close, or the stop or target level of an exit.
+buildMessage(string side, string prevPos, string newPos, string kind, float refPrice) =>
+    string tkr   = sendTicker()
+    string head  = '{"action":"' + side + '","instrument":"' + tkr + '","marketPosition":"' + newPos + '","prevMarketPosition":"' + prevPos + '"'
+    float  px    = side == "buy" ? refPrice * (1 + offsetInput / 100) : refPrice * (1 - offsetInput / 100)
+    string price = (assetInput == "Option" or na(px)) ? "" : (',"price":' + fmtPrice(px))
+    string mid   = idInput ? (',"metadata":{"message_id":"' + tkr + "-" + str.format_time(time, "yyyyMMddHHmmss", "UTC") + "-" + kind + '"}') : ""
+    head + price + mid + "}"
+
+// ---------------------------------------------------------------- Example signal
+
+float fastMA  = ta.ema(close, fastInput)
+float slowMA  = ta.ema(close, slowInput)
+bool  goLong  = ta.crossover(fastMA, slowMA)
+bool  goShort = ta.crossunder(fastMA, slowMA)
+
+plot(fastMA, "Fast EMA", color.teal)
+plot(slowMA, "Slow EMA", color.orange)
+
+// ---------------------------------------------------------------- Orders and their messages
+
+bool allowLong  = dirInput != "Short only"
+bool allowShort = dirInput != "Long only"
+
+// The position before this bar's orders fill. With process_orders_on_close, an order placed here fills
+// at this bar's close, so this is the prevMarketPosition of every order placed on this bar.
+string posNow = strategy.position_size > 0 ? "long" : strategy.position_size < 0 ? "short" : "flat"
+
+var string lastMessage = ""
+
+if goLong
+    if allowLong
+        string m = buildMessage("buy", posNow, "long", "open-long", close)
+        strategy.entry("Long", strategy.long, alert_message = m)
+        lastMessage := m
+    else if strategy.position_size < 0
+        string m = buildMessage("buy", "short", "flat", "close-short", close)
+        strategy.close("Short", alert_message = m)
+        lastMessage := m
+
+if goShort
+    if allowShort
+        string m = buildMessage("sell", posNow, "short", "open-short", close)
+        strategy.entry("Short", strategy.short, alert_message = m)
+        lastMessage := m
+    else if strategy.position_size > 0
+        string m = buildMessage("sell", "long", "flat", "close-long", close)
+        strategy.close("Long", alert_message = m)
+        lastMessage := m
+
+// Stop loss and take profit. A stop fill sends `alert_loss` and a target fill sends `alert_profit`,
+// each priced at its own level.
+if strategy.position_size > 0 and (slInput > 0 or tpInput > 0)
+    float stopPx  = slInput > 0 ? strategy.position_avg_price * (1 - slInput / 100) : na
+    float limitPx = tpInput > 0 ? strategy.position_avg_price * (1 + tpInput / 100) : na
+    strategy.exit("Long exit", from_entry = "Long", stop = stopPx, limit = limitPx,
+         alert_message = buildMessage("sell", "long", "flat", "close-long", close),
+         alert_loss = buildMessage("sell", "long", "flat", "stop-long", stopPx),
+         alert_profit = buildMessage("sell", "long", "flat", "target-long", limitPx))
+
+if strategy.position_size < 0 and (slInput > 0 or tpInput > 0)
+    float stopPx  = slInput > 0 ? strategy.position_avg_price * (1 + slInput / 100) : na
+    float limitPx = tpInput > 0 ? strategy.position_avg_price * (1 - tpInput / 100) : na
+    strategy.exit("Short exit", from_entry = "Short", stop = stopPx, limit = limitPx,
+         alert_message = buildMessage("buy", "short", "flat", "close-short", close),
+         alert_loss = buildMessage("buy", "short", "flat", "stop-short", stopPx),
+         alert_profit = buildMessage("buy", "short", "flat", "target-short", limitPx))
+
+// ---------------------------------------------------------------- Preview
+
+var table preview = table.new(position.bottom_right, 1, 3, bgcolor = color.new(color.black, 15), frame_color = color.gray, frame_width = 1)
+
+if previewInput and barstate.islast
+    string shown = lastMessage == "" ? "No signal order on this chart yet." : str.replace_all(lastMessage, ",", ",\n")
+    table.cell(preview, 0, 0, "Message of the last signal order", text_color = color.white, text_halign = text.align_left, text_size = size.small)
+    table.cell(preview, 0, 1, shown, text_color = color.white, text_halign = text.align_left, text_size = size.small, text_font_family = font.family_monospace)
+    table.cell(preview, 0, 2, "Alert: Order fills only. Message: {{strategy.order.alert_message}}", text_color = color.silver, text_halign = text.align_left, text_size = size.tiny)
+
+// ---------------------------------------------------------------- Self-test
+// The exact text the alert sends for three example bars. Prices and times are example values; bar
+// times are bar open times in UTC. Default inputs unless a bar says otherwise.
+//
+// Bar 1. SPY, 1 hour, bar of 2026-10-06 13:30, close 669.21. The fast EMA crosses above the slow EMA
+// with no position open. Order: buy "Long". Message:
+// {"action":"buy","instrument":"SPY","marketPosition":"long","prevMarketPosition":"flat","price":669.21,"metadata":{"message_id":"SPY-20261006133000-open-long"}}
+//
+// Bar 2. SPY, 1 hour, bar of 2026-10-07 17:30, close 664.87. The fast EMA crosses below the slow EMA
+// while long. One sell order closes the long and opens the short. Message:
+// {"action":"sell","instrument":"SPY","marketPosition":"short","prevMarketPosition":"long","price":664.87,"metadata":{"message_id":"SPY-20261007173000-open-short"}}
+//
+// Bar 3. The same bar as bar 2 with Trade direction set to Long only. The sell order only closes the
+// long. Message:
+// {"action":"sell","instrument":"SPY","marketPosition":"flat","prevMarketPosition":"long","price":664.87,"metadata":{"message_id":"SPY-20261007173000-close-long"}}
+//
+// Variants of bar 1:
+// Asset class Option (no price; the strategy's leg rules pick and price the contract):
+// {"action":"buy","instrument":"SPY","marketPosition":"long","prevMarketPosition":"flat","metadata":{"message_id":"SPY-20261006133000-open-long"}}
+// Limit price offset 0.1 (669.21 x 1.001 = 669.879, rounded to the 0.01 tick):
+// {"action":"buy","instrument":"SPY","marketPosition":"long","prevMarketPosition":"flat","price":669.88,"metadata":{"message_id":"SPY-20261006133000-open-long"}}
+// Add a message id off:
+// {"action":"buy","instrument":"SPY","marketPosition":"long","prevMarketPosition":"flat","price":669.21}
+//
+// Crypto. BTCUSDT.P perpetual chart, Asset class Crypto, bar of 2026-10-08 04:00, close 62415.3, a
+// short entry with no position open:
+// {"action":"sell","instrument":"BTCUSDT","marketPosition":"short","prevMarketPosition":"flat","price":62415.3,"metadata":{"message_id":"BTCUSDT-20261008040000-open-short"}}

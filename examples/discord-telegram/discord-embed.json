@@ -1,0 +1,12 @@
+{
+  "embeds": [
+    {
+      "title": "SPY long entry",
+      "description": "Trigger: 20EMA cross",
+      "fields": [
+        { "name": "Strike", "value": "780C" },
+        { "name": "Risk", "value": "1R" }
+      ]
+    }
+  ]
+}
