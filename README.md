@@ -105,6 +105,8 @@ A paper fill shows that your alert was read and routed. It does not predict how 
 - [TrendSpider](https://docs.nyria.io/alerts/trendspider), [Discord](https://docs.nyria.io/alerts/discord) and [Telegram](https://docs.nyria.io/alerts/telegram)
 - [Paper trading](https://docs.nyria.io/paper-trading)
 
+More examples, each one run through Nyria's alert tester by a script: [Nyria-LLC/trading-alert-examples](https://github.com/Nyria-LLC/trading-alert-examples).
+
 ## Built for Nyria
 
 The examples in this repository target [Nyria](https://nyria.io), a service that reads alerts from these sources and places the orders in your broker account. The message shapes follow its docs, so they will not match other tools unchanged. The examples are MIT licensed, and issues and pull requests are welcome.
