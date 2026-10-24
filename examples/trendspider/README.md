@@ -34,6 +34,18 @@ TrendSpider has no action or quantity variable. Write `"action": "buy"` into eac
 
 Each bot has its own webhook URL and body, so each can post to a different Nyria strategy. Give the bot's entry webhook `"action": "buy"` and its exit webhook `"action": "sell"`.
 
+## Broker-specific notes
+
+The alert body is the same for every broker. What differs is how the broker connects and what it supports.
+
+| Broker | Notes |
+|---|---|
+| [schwab](schwab) | Connects through Schwab sign-in. Session expires every 7 days. Stocks and options only. |
+| [tradier](tradier) | Connects through Tradier sign-in or sandbox. Sandbox is a paper account. No crypto. |
+| [tastytrade](tastytrade) | Connects through tastytrade sign-in. Live accounts only. Crypto off since 29 June 2026. |
+| [alpaca](alpaca) | Connects with an API key. Paper and live both work. Stocks, options and crypto spot. |
+| [nyria-paper](nyria-paper) | No connection needed. Free simulated broker. Stocks, options and crypto spot. |
+
 ## Docs
 
 - [Connect TrendSpider alerts](https://docs.nyria.io/alerts/trendspider)
